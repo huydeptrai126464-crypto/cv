@@ -1,0 +1,39 @@
+body {
+  margin: 0;
+  font-family: Arial;
+  background: #0b1020;
+  color: white;
+  text-align: center;
+}
+
+.container {
+  padding: 50px;
+}
+
+h1 {
+  font-size: 40px;
+}
+
+.btn, .btn2 {
+  display: inline-block;
+  margin: 10px;
+  padding: 12px 20px;
+  border-radius: 10px;
+  border: none;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.btn {
+  background: linear-gradient(45deg, #7c5cff, #22d3ee);
+  color: white;
+}
+
+.btn2 {
+  background: #222;
+  color: white;
+}
+
+.hidden {
+  display: none;
+}
