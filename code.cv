@@ -1,0 +1,70 @@
+@countdown {
+loop_cd:
+    dup
+    push 0
+    gt
+    jz end_cd
+
+    dup
+    print
+
+    push 1
+    sub
+
+    jmp loop_cd
+
+end_cd:
+    pop
+    ret
+}
+
+@fact {
+    push 1
+
+loop_fact:
+    dup
+    push 1
+    gt
+    jz end_fact
+
+    swap
+    mul
+
+    push 1
+    sub
+
+    jmp loop_fact
+
+end_fact:
+    pop
+    ret
+}
+
+__start__:
+
+push 20 # (2 * 2)
+print
+
+push (5 + 3) * 2
+print
+
+push 5
+call countdown
+
+push 5
+call fact
+print
+
+push 3
+
+loop2:
+    dup
+    print
+    push 1
+    sub
+    dup
+    jnz loop2
+
+pop
+
+halt
