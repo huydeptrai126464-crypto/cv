@@ -1,4 +1,4 @@
-# Cv 1.0
+# Cv
 
 Cv stands for Compiler Virtual Machine.
 
@@ -423,7 +423,7 @@ But this is also what makes it interesting: you can see the whole pipeline clear
 
 ## Summary
 
-Cv 1.0 is a small compiler and VM system.
+Cv is a small compiler and VM system.
 
 - `__start__:` works like `main()`
 - functions use `@name { ... }`
