@@ -46,6 +46,7 @@ static Op parse_op(const string& s) {
     if (s == "GT")    return Op::GT;
     if (s == "LT")    return Op::LT;
     if (s == "EQ")    return Op::EQ;
+    if (s == "INPUT") return Op::INPUT;
     if (s == "HALT")  return Op::HALT;
     throw runtime_error("Unknown opcode: " + s);
 }
