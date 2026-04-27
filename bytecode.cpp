@@ -6,13 +6,15 @@
 #include <unordered_map>
 #include <stack>
 #include <stdexcept>
+#include <cctype>
+#include <utility>
 using namespace std;
 
 enum class Op {
     PUSH, ADD, SUB, MUL, DIV,
     PRINT, POP, DUP, SWAP,
     JMP, JZ, JNZ, CALL, RET,
-    GT, LT, EQ,
+    GT, LT, EQ, INPUT,
     HALT
 };
 
@@ -68,6 +70,7 @@ static string op_name(Op op) {
         case Op::GT:    return "GT";
         case Op::LT:    return "LT";
         case Op::EQ:    return "EQ";
+        case Op::INPUT: return "INPUT";
         case Op::HALT:  return "HALT";
     }
     return "HALT";
@@ -310,6 +313,8 @@ static CompiledBlock compile_block(const vector<string>& lines, bool is_main) {
             b.code.push_back({Op::LT, 0, ""});
         } else if (cmd == "eq") {
             b.code.push_back({Op::EQ, 0, ""});
+        } else if (cmd == "input") {
+            b.code.push_back({Op::INPUT, 0, ""});
         } else if (cmd == "jmp" || cmd == "jz" || cmd == "jnz" || cmd == "call") {
             if (rest.empty()) throw runtime_error(cmd + " needs a label");
             string lab = normalize_label(rest);
@@ -380,7 +385,9 @@ int main(int argc, char** argv) {
         auto append_block = [&](CompiledBlock& b) {
             int base = (int)program.size();
 
-            for (auto& [name, pos] : b.labels) {
+            for (auto& kv : b.labels) {
+                const string& name = kv.first;
+                int pos = kv.second;
                 if (globals.count(name)) throw runtime_error("Duplicate global label: " + name);
                 globals[name] = base + pos;
             }

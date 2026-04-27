@@ -12,7 +12,7 @@ enum class Op {
     PUSH, ADD, SUB, MUL, DIV,
     PRINT, POP, DUP, SWAP,
     JMP, JZ, JNZ, CALL, RET,
-    GT, LT, EQ,
+    GT, LT, EQ,INPUT,
     HALT
 };
 
@@ -123,6 +123,13 @@ struct VM {
                     stack.pop_back();
                     ++ip;
                     break;
+                 case Op::INPUT: {
+    long long x;
+    cin >> x;
+    stack.push_back(x);
+    ++ip;
+    break;
+}
 
                 case Op::POP:
                     if (!need(1, "pop on empty stack")) return;

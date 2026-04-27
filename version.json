@@ -3,3 +3,8 @@
   "Version": "1.0",
   "Update": "nothing"
 }
+{
+  "Name": "Cv",
+  "Version": "1.1",
+  "Update": "add INPUT instruction"
+}
