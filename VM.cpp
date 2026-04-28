@@ -5,6 +5,8 @@
 #include <stdexcept>
 #include <cctype>
 #include <algorithm>
+#include <sstream>
+#include <iomanip>
 using namespace std;
 
 enum class Op {
@@ -12,7 +14,7 @@ enum class Op {
     PRINT, POP, DUP, SWAP,
     JMP, JZ, JNZ, CALL, RET,
     GT, LT, EQ, INPUT, PRINT_STR,
-    LOAD, STORE,
+    LOAD, STORE, LOADI, STOREI,
     HALT
 };
 
@@ -50,6 +52,8 @@ static Op parse_op(const string& s) {
     if (s == "INPUT")     return Op::INPUT;
     if (s == "LOAD")      return Op::LOAD;
     if (s == "STORE")     return Op::STORE;
+    if (s == "LOADI")     return Op::LOADI;
+    if (s == "STOREI")    return Op::STOREI;
     if (s == "HALT")      return Op::HALT;
     throw runtime_error("Unknown opcode: " + s);
 }
@@ -58,8 +62,9 @@ struct VM {
     vector<long long> stack;
     vector<int> callstack;
     vector<long long> memory;
+    vector<string> strings;
 
-    VM() : memory(1024, 0) {}
+    VM() : memory(4096, 0) {}
 
     bool need(size_t n, const string& msg) {
         if (stack.size() < n) {
@@ -79,6 +84,14 @@ struct VM {
     bool check_mem(long long idx, const string& op) {
         if (idx < 0 || idx >= (long long)memory.size()) {
             cerr << "[vm] " << op << " out of bounds: " << idx << "\n";
+            return false;
+        }
+        return true;
+    }
+
+    bool check_str(long long idx) {
+        if (idx < 0 || idx >= (long long)strings.size()) {
+            cerr << "[vm] PRINT_STR bad string id: " << idx << "\n";
             return false;
         }
         return true;
@@ -140,17 +153,11 @@ struct VM {
                     break;
 
                 case Op::PRINT_STR: {
-                    vector<char> buf;
-                    while (true) {
-                        if (!need(1, "print_str underflow")) return;
-                        long long c = stack.back();
-                        stack.pop_back();
-                        if (c == 0) break;
-                        buf.push_back((char)c);
-                    }
-                    reverse(buf.begin(), buf.end());
-                    for (char c : buf) cout << c;
-                    cout << "\n";
+                    if (!need(1, "print_str on empty stack")) return;
+                    long long sid = stack.back();
+                    stack.pop_back();
+                    if (!check_str(sid)) return;
+                    cout << strings[(size_t)sid] << "\n";
                     ++ip;
                     break;
                 }
@@ -255,6 +262,26 @@ struct VM {
                     break;
                 }
 
+                case Op::LOADI: {
+                    if (!need(1, "LOADI needs index")) return;
+                    long long idx = stack.back();
+                    stack.pop_back();
+                    if (!check_mem(idx, "LOADI")) return;
+                    stack.push_back(memory[(size_t)idx]);
+                    ++ip;
+                    break;
+                }
+
+                case Op::STOREI: {
+                    if (!need(2, "STOREI needs index + value")) return;
+                    long long value = stack.back(); stack.pop_back();
+                    long long idx = stack.back(); stack.pop_back();
+                    if (!check_mem(idx, "STOREI")) return;
+                    memory[(size_t)idx] = value;
+                    ++ip;
+                    break;
+                }
+
                 case Op::HALT:
                     return;
             }
@@ -270,28 +297,61 @@ int main(int argc, char** argv) {
         ifstream in(path);
         if (!in) throw runtime_error("Cannot open bytecode file: " + path);
 
-        string first;
-        int entry = 0;
-        if (!(in >> first >> entry) || first != "ENTRY") {
-            throw runtime_error("Bad bytecode header");
-        }
-
         vector<Ins> program;
-        string opstr;
-        while (in >> opstr) {
+        vector<string> strings;
+        string line;
+        bool have_entry = false;
+        int entry = 0;
+
+        while (getline(in, line)) {
+            line = trim(line);
+            if (line.empty()) continue;
+
+            if (!have_entry) {
+                stringstream hs(line);
+                string first;
+                if (!(hs >> first >> entry) || first != "ENTRY") {
+                    throw runtime_error("Bad bytecode header");
+                }
+                have_entry = true;
+                continue;
+            }
+
+            if (line.rfind("STR", 0) == 0) {
+                stringstream ss(line);
+                string tag;
+                int id;
+                string val;
+                if (!(ss >> tag >> id)) throw runtime_error("Bad STR line");
+                if (tag != "STR") throw runtime_error("Bad STR line");
+                if (!(ss >> quoted(val))) throw runtime_error("Bad STR payload");
+                if (id < 0) throw runtime_error("Negative STR id");
+                if ((size_t)id >= strings.size()) strings.resize((size_t)id + 1);
+                strings[(size_t)id] = val;
+                continue;
+            }
+
+            stringstream ss(line);
+            string opstr;
+            ss >> opstr;
+            if (opstr.empty()) continue;
+
             Ins ins;
             ins.op = parse_op(opstr);
 
             if (ins.op == Op::PUSH || ins.op == Op::JMP || ins.op == Op::JZ ||
                 ins.op == Op::JNZ  || ins.op == Op::CALL || ins.op == Op::LOAD ||
                 ins.op == Op::STORE) {
-                if (!(in >> ins.arg)) throw runtime_error("Missing operand for " + opstr);
+                if (!(ss >> ins.arg)) throw runtime_error("Missing operand for " + opstr);
             }
 
             program.push_back(ins);
         }
 
+        if (!have_entry) throw runtime_error("Missing ENTRY header");
+
         VM vm;
+        vm.strings = move(strings);
         vm.run(program, entry);
         return 0;
     } catch (const exception& e) {

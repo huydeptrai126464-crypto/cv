@@ -8,14 +8,15 @@
 #include <stdexcept>
 #include <cctype>
 #include <utility>
+#include <iomanip>
 using namespace std;
 
 enum class Op {
     PUSH, ADD, SUB, MUL, DIV,
     PRINT, POP, DUP, SWAP,
     JMP, JZ, JNZ, CALL, RET,
-    GT, LT, EQ, INPUT,PRINT_STR,
-    LOAD, STORE,
+    GT, LT, EQ, INPUT, PRINT_STR,
+    LOAD, STORE, LOADI, STOREI,
     HALT
 };
 
@@ -29,6 +30,12 @@ struct CompiledBlock {
     vector<RawIns> code;
     unordered_map<string, int> labels;
 };
+
+static vector<string> g_string_pool;
+static unordered_map<string, int> g_string_ids;
+static unordered_map<string, int> g_mem_slots;
+static int g_next_mem_slot = 0;
+static int g_auto_id = 0;
 
 static string trim(string s) {
     size_t a = 0, b = s.size();
@@ -46,10 +53,84 @@ static bool starts_with(const string& s, const string& p) {
     return s.size() >= p.size() && s.compare(0, p.size(), p) == 0;
 }
 
+static bool is_integer(const string& s) {
+    if (s.empty()) return false;
+    size_t i = 0;
+    if (s[0] == '-' || s[0] == '+') ++i;
+    if (i >= s.size()) return false;
+    for (; i < s.size(); ++i) {
+        if (!isdigit((unsigned char)s[i])) return false;
+    }
+    return true;
+}
+
+static bool is_identifier(const string& s) {
+    if (s.empty()) return false;
+    if (!(isalpha((unsigned char)s[0]) || s[0] == '_')) return false;
+    for (size_t i = 1; i < s.size(); ++i) {
+        char c = s[i];
+        if (!(isalnum((unsigned char)c) || c == '_')) return false;
+    }
+    return true;
+}
+
 static string normalize_label(string s) {
     s = trim(s);
     if (!s.empty() && s[0] == '@') s = trim(s.substr(1));
     return s;
+}
+
+static string decode_string_literal(const string& raw) {
+    string s = trim(raw);
+    if (s.size() >= 2 && s.front() == '"' && s.back() == '"') {
+        s = s.substr(1, s.size() - 2);
+        string out;
+        for (size_t i = 0; i < s.size(); ++i) {
+            char c = s[i];
+            if (c == '\\' && i + 1 < s.size()) {
+                char n = s[++i];
+                switch (n) {
+                    case 'n': out.push_back('\n'); break;
+                    case 't': out.push_back('\t'); break;
+                    case 'r': out.push_back('\r'); break;
+                    case '\\': out.push_back('\\'); break;
+                    case '"': out.push_back('"'); break;
+                    case '0': out.push_back('\0'); break;
+                    default: out.push_back(n); break;
+                }
+            } else {
+                out.push_back(c);
+            }
+        }
+        return out;
+    }
+    return s;
+}
+
+static int intern_string(const string& s) {
+    auto it = g_string_ids.find(s);
+    if (it != g_string_ids.end()) return it->second;
+    int id = (int)g_string_pool.size();
+    g_string_pool.push_back(s);
+    g_string_ids[s] = id;
+    return id;
+}
+
+static long long resolve_mem_operand(const string& text) {
+    string t = trim(text);
+    if (t.empty()) throw runtime_error("Missing memory operand");
+    if (is_integer(t)) return stoll(t);
+
+    if (!is_identifier(t)) {
+        throw runtime_error("Invalid memory operand: " + t);
+    }
+
+    auto it = g_mem_slots.find(t);
+    if (it != g_mem_slots.end()) return it->second;
+
+    int slot = g_next_mem_slot++;
+    g_mem_slots[t] = slot;
+    return slot;
 }
 
 static string op_name(Op op) {
@@ -63,6 +144,8 @@ static string op_name(Op op) {
         case Op::PRINT_STR: return "PRINT_STR";
         case Op::LOAD:  return "LOAD";
         case Op::STORE: return "STORE";
+        case Op::LOADI: return "LOADI";
+        case Op::STOREI: return "STOREI";
         case Op::POP:   return "POP";
         case Op::DUP:   return "DUP";
         case Op::SWAP:  return "SWAP";
@@ -254,7 +337,7 @@ static void parse_source(
             string name = trim(tk.substr(1));
             if (name.empty()) throw runtime_error("Empty function name");
 
-            ++i; // consume "{"
+            ++i;
             int depth = 1;
             vector<string> body;
 
@@ -354,8 +437,6 @@ static string extract_paren_content(const string& s) {
     throw runtime_error("Missing ')'");
 }
 
-static int g_auto_id = 0;
-
 static string new_label(const string& base) {
     return base + "_" + to_string(g_auto_id++);
 }
@@ -365,7 +446,6 @@ static void mark_label(CompiledBlock& b, const string& lab) {
     if (b.labels.count(lab)) throw runtime_error("Duplicate label in block: " + lab);
     b.labels[lab] = (int)b.code.size();
 }
-
 static void emit_condition_false_jump(const string& cond, vector<RawIns>& out, const string& false_label) {
     string s = trim(cond);
     if (s.empty()) return;
@@ -429,18 +509,11 @@ static void compile_simple_stmt(const string& line, CompiledBlock& b) {
         emit_expr(rest, b.code);
     }
     else if (cmd == "push_str") {
-    string s = rest;
-
-    if (s.size() >= 2 && s.front() == '"' && s.back() == '"') {
-        s = s.substr(1, s.size() - 2);
+        if (rest.empty()) throw runtime_error("push_str needs a string literal");
+        string s = decode_string_literal(rest);
+        int sid = intern_string(s);
+        b.code.push_back({Op::PUSH, sid, ""});
     }
-
-    b.code.push_back({Op::PUSH, 0, ""}); 
-
-for (char c : s) {
-    b.code.push_back({Op::PUSH, (long long)(unsigned char)c, ""});
-}
-}
     else if (cmd == "print") {
         if (!rest.empty()) emit_expr(rest, b.code);
         b.code.push_back({Op::PRINT, 0, ""});
@@ -448,17 +521,24 @@ for (char c : s) {
     else if (cmd == "print_str") {
         b.code.push_back({Op::PRINT_STR, 0, ""});
     }
-    
     else if (cmd == "load") {
-    if (rest.empty()) throw runtime_error("load needs an index");
-    long long idx = stoll(rest);
-    b.code.push_back({Op::LOAD, idx, ""});
-}
-else if (cmd == "store") {
-    if (rest.empty()) throw runtime_error("store needs an index");
-    long long idx = stoll(rest);
-    b.code.push_back({Op::STORE, idx, ""});
-}
+        if (rest.empty()) throw runtime_error("load needs an index or variable name");
+        long long idx = resolve_mem_operand(rest);
+        b.code.push_back({Op::LOAD, idx, ""});
+    }
+    else if (cmd == "store") {
+        if (rest.empty()) throw runtime_error("store needs an index or variable name");
+        long long idx = resolve_mem_operand(rest);
+        b.code.push_back({Op::STORE, idx, ""});
+    }
+    else if (cmd == "loadi") {
+        if (!rest.empty()) throw runtime_error("loadi takes no operand");
+        b.code.push_back({Op::LOADI, 0, ""});
+    }
+    else if (cmd == "storei") {
+        if (!rest.empty()) throw runtime_error("storei takes no operand");
+        b.code.push_back({Op::STOREI, 0, ""});
+    }
     else if (cmd == "pop") {
         b.code.push_back({Op::POP, 0, ""});
     }
@@ -513,6 +593,7 @@ else if (cmd == "store") {
         throw runtime_error("Unknown command: " + cmd);
     }
 }
+
 static void compile_block_body(const vector<string>& toks, size_t& pos, CompiledBlock& b);
 
 static void compile_if_chain(const vector<string>& toks, size_t& pos, CompiledBlock& b, const string& end_label) {
@@ -680,6 +761,12 @@ int main(int argc, char** argv) {
         if (argc >= 2) src_path = argv[1];
         if (argc >= 3) out_path = argv[2];
 
+        g_string_pool.clear();
+        g_string_ids.clear();
+        g_mem_slots.clear();
+        g_next_mem_slot = 0;
+        g_auto_id = 0;
+
         vector<string> raw = read_lines(src_path);
 
         vector<FuncBlock> funcs;
@@ -723,7 +810,8 @@ int main(int argc, char** argv) {
 
         for (auto& b : compiled_funcs) append_block(b);
         append_block(main_block);
-if (!globals.count("__start__")) {
+
+        if (!globals.count("__start__")) {
             throw runtime_error("Entry label __start__ not found");
         }
 
@@ -740,6 +828,10 @@ if (!globals.count("__start__")) {
         if (!out) throw runtime_error("Cannot open output file: " + out_path);
 
         out << "ENTRY " << globals["__start__"] << "\n";
+        for (size_t i = 0; i < g_string_pool.size(); ++i) {
+            out << "STR " << i << ' ' << quoted(g_string_pool[i]) << "\n";
+        }
+
         for (auto& ins : program) {
             out << op_name(ins.op);
             switch (ins.op) {
@@ -761,10 +853,10 @@ if (!globals.count("__start__")) {
         cout << "Compiled " << src_path << " -> " << out_path << "\n";
         cout << "Entry = " << globals["__start__"] << "\n";
         cout << "Instructions = " << program.size() << "\n";
+        cout << "Strings = " << g_string_pool.size() << "\n";
         return 0;
     } catch (const exception& e) {
         cerr << "[bytecode] " << e.what() << "\n";
         return 1;
     }
 }
-     
