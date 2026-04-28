@@ -1,10 +1,17 @@
-{
-  "Name": "Cv",
-  "Version": "1.0",
-  "Update": "nothing"
-}
-{
-  "Name": "Cv",
-  "Version": "1.1",
-  "Update": "add INPUT instruction"
-}
+[
+  {
+    "Name": "Cv",
+    "Version": "1.0",
+    "Update": "nothing"
+  },
+  {
+    "Name": "Cv",
+    "Version": "1.1",
+    "Update": "add INPUT instruction"
+  },
+  {
+    "Name": "Cv",
+    "Version": "2.0",
+    "Update": "add if/else, while, for"
+  }
+]

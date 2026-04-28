@@ -21,7 +21,7 @@ enum class Op {
 struct RawIns {
     Op op;
     long long arg = 0;
-    string label; // for JMP/JZ/JNZ/CALL before patching
+    string label;
 };
 
 struct CompiledBlock {
@@ -53,11 +53,11 @@ static string normalize_label(string s) {
 
 static string op_name(Op op) {
     switch (op) {
-        case Op::PUSH: return "PUSH";
-        case Op::ADD:  return "ADD";
-        case Op::SUB:  return "SUB";
-        case Op::MUL:  return "MUL";
-        case Op::DIV:  return "DIV";
+        case Op::PUSH:  return "PUSH";
+        case Op::ADD:   return "ADD";
+        case Op::SUB:   return "SUB";
+        case Op::MUL:   return "MUL";
+        case Op::DIV:   return "DIV";
         case Op::PRINT: return "PRINT";
         case Op::POP:   return "POP";
         case Op::DUP:   return "DUP";
@@ -113,9 +113,7 @@ struct ExprCompiler {
             else if (c == '#') toks.push_back({Token::HASH, 0});
             else if (c == '(') toks.push_back({Token::LP, 0});
             else if (c == ')') toks.push_back({Token::RP, 0});
-            else {
-                throw runtime_error(string("Unknown char in expression: '") + c + "'");
-            }
+            else throw runtime_error(string("Unknown char in expression: '") + c + "'");
             ++i;
         }
         toks.push_back({Token::END, 0});
@@ -167,9 +165,7 @@ struct ExprCompiler {
             } else if (match(Token::HASH)) {
                 parse_factor();
                 out.push_back({Op::DIV, 0, ""});
-            } else {
-                break;
-            }
+            } else break;
         }
     }
 
@@ -182,9 +178,7 @@ struct ExprCompiler {
             } else if (match(Token::MINUS)) {
                 parse_term();
                 out.push_back({Op::SUB, 0, ""});
-            } else {
-                break;
-            }
+            } else break;
         }
     }
 
@@ -204,57 +198,88 @@ static vector<string> read_lines(const string& path) {
     return lines;
 }
 
+static vector<string> tokenize_source(const vector<string>& raw) {
+    vector<string> out;
+    for (const string& r : raw) {
+        string s = strip_comment(r);
+        string cur;
+        for (char c : s) {
+            if (c == '{' || c == '}') {
+                string t = trim(cur);
+                if (!t.empty()) out.push_back(t);
+                cur.clear();
+                out.push_back(string(1, c));
+            } else {
+                cur.push_back(c);
+            }
+        }
+        string t = trim(cur);
+        if (!t.empty()) out.push_back(t);
+    }
+    return out;
+}
+
 struct FuncBlock {
     string name;
-    vector<string> lines;
+    vector<string> toks;
 };
 
 static void parse_source(
     const vector<string>& raw,
     vector<FuncBlock>& funcs,
-    vector<string>& main_lines
+    vector<string>& main_toks
 ) {
+    vector<string> toks = tokenize_source(raw);
     bool seen_start = false;
 
-    for (size_t i = 0; i < raw.size(); ++i) {
-        string line = strip_comment(raw[i]);
-        if (line.empty()) continue;
+    for (size_t i = 0; i < toks.size(); ++i) {
+        string tk = trim(toks[i]);
+        if (tk.empty()) continue;
 
-        if (line == "__start__:") {
+        if (tk == "__start__:") {
             seen_start = true;
-            main_lines.push_back(line);
+            main_toks.push_back(tk);
             continue;
         }
 
-        if (starts_with(line, "@")) {
-            size_t lb = line.find('{');
-            if (lb == string::npos) throw runtime_error("Function header must be like: @name {");
-            string name = trim(line.substr(1, lb - 1));
+        if (starts_with(tk, "@")) {
+            if (i + 1 >= toks.size() || trim(toks[i + 1]) != "{") {
+                throw runtime_error("Function header must be like: @name {");
+            }
+
+            string name = trim(tk.substr(1));
             if (name.empty()) throw runtime_error("Empty function name");
+
+            ++i; // consume "{"
+            int depth = 1;
+            vector<string> body;
+
+            for (++i; i < toks.size(); ++i) {
+                string t = trim(toks[i]);
+                if (t == "{") {
+                    ++depth;
+                    body.push_back(t);
+                    continue;
+                }
+                if (t == "}") {
+                    --depth;
+                    if (depth == 0) break;
+                    body.push_back(t);
+                    continue;
+                }
+                body.push_back(t);
+            }
+
+            if (depth != 0) throw runtime_error("Missing '}' for function: " + name);
 
             FuncBlock fn;
             fn.name = name;
-
-            ++i;
-            bool closed = false;
-            for (; i < raw.size(); ++i) {
-                string body = strip_comment(raw[i]);
-                if (body.empty()) continue;
-                if (body == "}") {
-                    closed = true;
-                    break;
-                }
-                fn.lines.push_back(body);
-            }
-            if (!closed) throw runtime_error("Missing '}' for function: " + name);
-
+            fn.toks = move(body);
             funcs.push_back(move(fn));
             continue;
         }
 
-        if (seen_start) {
-            main_lines.push_back(line);
-        }
+        if (seen_start) main_toks.push_back(tk);
     }
 }
 
@@ -263,73 +288,328 @@ static void emit_expr(const string& expr, vector<RawIns>& out) {
     ec.compile();
 }
 
-static CompiledBlock compile_block(const vector<string>& lines, bool is_main) {
-    CompiledBlock b;
+static bool split_comparison(const string& cond, string& lhs, string& op, string& rhs) {
+    int depth = 0;
+    for (size_t i = 0; i < cond.size(); ++i) {
+        char c = cond[i];
+        if (c == '(') ++depth;
+        else if (c == ')') --depth;
+        if (depth != 0) continue;
 
-    for (const string& line0 : lines) {
-        string line = trim(line0);
-        if (line.empty()) continue;
-        if (line == "}") continue;
+        if (i + 1 < cond.size()) {
+            string two = cond.substr(i, 2);
+            if (two == "==" || two == "!=" || two == ">=" || two == "<=") {
+                lhs = trim(cond.substr(0, i));
+                op  = two;
+                rhs = trim(cond.substr(i + 2));
+                return true;
+            }
+        }
 
-        if (!line.empty() && line.back() == ':') {
-            string lab = trim(line.substr(0, line.size() - 1));
-            if (lab.empty()) throw runtime_error("Empty label");
-            if (b.labels.count(lab)) throw runtime_error("Duplicate label in block: " + lab);
-            b.labels[lab] = (int)b.code.size();
+        if (c == '>' || c == '<') {
+            lhs = trim(cond.substr(0, i));
+            op  = string(1, c);
+            rhs = trim(cond.substr(i + 1));
+            return true;
+        }
+    }
+    return false;
+}
+
+static vector<string> split_top_level(const string& s, char sep) {
+    vector<string> parts;
+    string cur;
+    int depth = 0;
+
+    for (char c : s) {
+        if (c == '(') ++depth;
+        else if (c == ')') --depth;
+
+        if (c == sep && depth == 0) {
+            parts.push_back(trim(cur));
+            cur.clear();
+        } else {
+            cur.push_back(c);
+        }
+    }
+    parts.push_back(trim(cur));
+    return parts;
+}
+
+static string extract_paren_content(const string& s) {
+    size_t lp = s.find('(');
+    if (lp == string::npos) throw runtime_error("Missing '('");
+    int depth = 0;
+    for (size_t i = lp; i < s.size(); ++i) {
+        if (s[i] == '(') ++depth;
+        else if (s[i] == ')') {
+            --depth;
+            if (depth == 0) return trim(s.substr(lp + 1, i - lp - 1));
+        }
+    }
+    throw runtime_error("Missing ')'");
+}
+
+static int g_auto_id = 0;
+
+static string new_label(const string& base) {
+    return base + "_" + to_string(g_auto_id++);
+}
+
+static void mark_label(CompiledBlock& b, const string& lab) {
+    if (lab.empty()) throw runtime_error("Empty label");
+    if (b.labels.count(lab)) throw runtime_error("Duplicate label in block: " + lab);
+    b.labels[lab] = (int)b.code.size();
+}
+
+static void emit_condition_false_jump(const string& cond, vector<RawIns>& out, const string& false_label) {
+    string s = trim(cond);
+    if (s.empty()) return;
+
+    string lhs, op, rhs;
+    if (split_comparison(s, lhs, op, rhs)) {
+        if (lhs.empty() || rhs.empty()) throw runtime_error("Bad comparison condition: " + cond);
+
+        emit_expr(lhs, out);
+        emit_expr(rhs, out);
+
+        if (op == ">") {
+            out.push_back({Op::GT, 0, ""});
+            out.push_back({Op::JZ, 0, false_label});
+        } else if (op == "<") {
+            out.push_back({Op::LT, 0, ""});
+            out.push_back({Op::JZ, 0, false_label});
+        } else if (op == "==") {
+            out.push_back({Op::EQ, 0, ""});
+            out.push_back({Op::JZ, 0, false_label});
+        } else if (op == "!=") {
+            out.push_back({Op::EQ, 0, ""});
+            out.push_back({Op::JNZ, 0, false_label});
+        } else if (op == ">=") {
+            out.push_back({Op::LT, 0, ""});
+            out.push_back({Op::JNZ, 0, false_label});
+        } else if (op == "<=") {
+            out.push_back({Op::GT, 0, ""});
+            out.push_back({Op::JNZ, 0, false_label});
+        } else {
+            throw runtime_error("Unknown comparison operator in condition");
+        }
+        return;
+    }
+
+    emit_expr(s, out);
+    out.push_back({Op::JZ, 0, false_label});
+}
+
+static void compile_simple_stmt(const string& line, CompiledBlock& b) {
+    string t = trim(line);
+    if (t.empty()) return;
+
+    if (!t.empty() && t.back() == ':') {
+        string lab = trim(t.substr(0, t.size() - 1));
+        if (lab.empty()) throw runtime_error("Empty label");
+        mark_label(b, lab);
+        return;
+    }
+
+    string cmd, rest;
+    {
+        stringstream ss(t);
+        ss >> cmd;
+        getline(ss, rest);
+        rest = trim(rest);
+    }
+
+    if (cmd == "push") {
+        if (rest.empty()) throw runtime_error("push needs an expression");
+        emit_expr(rest, b.code);
+    } else if (cmd == "print") {
+        if (!rest.empty()) emit_expr(rest, b.code);
+        b.code.push_back({Op::PRINT, 0, ""});
+    } else if (cmd == "pop") {
+        b.code.push_back({Op::POP, 0, ""});
+    } else if (cmd == "dup") {
+        b.code.push_back({Op::DUP, 0, ""});
+    } else if (cmd == "swap") {
+        b.code.push_back({Op::SWAP, 0, ""});
+    } else if (cmd == "add") {
+        b.code.push_back({Op::ADD, 0, ""});
+    } else if (cmd == "sub") {
+        b.code.push_back({Op::SUB, 0, ""});
+    } else if (cmd == "mul") {
+        b.code.push_back({Op::MUL, 0, ""});
+    } else if (cmd == "div") {
+        b.code.push_back({Op::DIV, 0, ""});
+    } else if (cmd == "gt") {
+        b.code.push_back({Op::GT, 0, ""});
+    } else if (cmd == "lt") {
+        b.code.push_back({Op::LT, 0, ""});
+    } else if (cmd == "eq") {
+        b.code.push_back({Op::EQ, 0, ""});
+    } else if (cmd == "input") {
+        b.code.push_back({Op::INPUT, 0, ""});
+    } else if (cmd == "jmp" || cmd == "jz" || cmd == "jnz" || cmd == "call") {
+        if (rest.empty()) throw runtime_error(cmd + " needs a label");
+        string lab = normalize_label(rest);
+        Op op = Op::JMP;
+        if (cmd == "jz") op = Op::JZ;
+        else if (cmd == "jnz") op = Op::JNZ;
+        else if (cmd == "call") op = Op::CALL;
+        b.code.push_back({op, 0, lab});
+    } else if (cmd == "ret") {
+        b.code.push_back({Op::RET, 0, ""});
+    } else if (cmd == "halt") {
+        b.code.push_back({Op::HALT, 0, ""});
+    } else {
+        throw runtime_error("Unknown command: " + cmd);
+    }
+}
+
+static void compile_block_body(const vector<string>& toks, size_t& pos, CompiledBlock& b);
+
+static void compile_if_chain(const vector<string>& toks, size_t& pos, CompiledBlock& b, const string& end_label) {
+    if (pos >= toks.size()) throw runtime_error("Unexpected end in if");
+    string header = trim(toks[pos++]);
+
+    bool is_else_if = starts_with(header, "else if");
+    bool is_if = starts_with(header, "if");
+    if (!is_if && !is_else_if) throw runtime_error("Bad if header: " + header);
+
+    string cond = extract_paren_content(header);
+    if (trim(cond).empty()) throw runtime_error("Empty condition in if");
+
+    string false_label = new_label("if_else");
+    emit_condition_false_jump(cond, b.code, false_label);
+
+    compile_block_body(toks, pos, b);
+
+    b.code.push_back({Op::JMP, 0, end_label});
+    mark_label(b, false_label);
+
+    if (pos < toks.size()) {
+        string next = trim(toks[pos]);
+        if (starts_with(next, "else if")) {
+            compile_if_chain(toks, pos, b, end_label);
+            return;
+        }
+        if (next == "else") {
+            ++pos;
+            compile_block_body(toks, pos, b);
+            return;
+        }
+    }
+}
+
+static void compile_if_stmt(const vector<string>& toks, size_t& pos, CompiledBlock& b) {
+    string end_label = new_label("if_end");
+    compile_if_chain(toks, pos, b, end_label);
+    mark_label(b, end_label);
+}
+
+static void compile_while_stmt(const vector<string>& toks, size_t& pos, CompiledBlock& b) {
+    if (pos >= toks.size()) throw runtime_error("Unexpected end in while");
+    string header = trim(toks[pos++]);
+    if (!starts_with(header, "while")) throw runtime_error("Bad while header: " + header);
+
+    string cond = extract_paren_content(header);
+    if (trim(cond).empty()) throw runtime_error("Empty condition in while");
+
+    string lstart = new_label("while_start");
+    string lend = new_label("while_end");
+
+    mark_label(b, lstart);
+    emit_condition_false_jump(cond, b.code, lend);
+    compile_block_body(toks, pos, b);
+    b.code.push_back({Op::JMP, 0, lstart});
+    mark_label(b, lend);
+}
+
+static void compile_for_stmt(const vector<string>& toks, size_t& pos, CompiledBlock& b) {
+    if (pos >= toks.size()) throw runtime_error("Unexpected end in for");
+    string header = trim(toks[pos++]);
+    if (!starts_with(header, "for")) throw runtime_error("Bad for header: " + header);
+
+    string inside = extract_paren_content(header);
+    vector<string> parts = split_top_level(inside, ';');
+    if (parts.size() != 3) throw runtime_error("for needs exactly 3 parts: for (init; cond; update)");
+
+    string init = trim(parts[0]);
+    string cond = trim(parts[1]);
+    string update = trim(parts[2]);
+
+    if (!init.empty()) compile_simple_stmt(init, b);
+
+    string lstart = new_label("for_start");
+    string lend = new_label("for_end");
+
+    mark_label(b, lstart);
+    if (!cond.empty()) emit_condition_false_jump(cond, b.code, lend);
+
+    compile_block_body(toks, pos, b);
+
+    if (!update.empty()) compile_simple_stmt(update, b);
+    b.code.push_back({Op::JMP, 0, lstart});
+    mark_label(b, lend);
+}
+
+static void compile_block_tokens(const vector<string>& toks, size_t& pos, CompiledBlock& b) {
+    while (pos < toks.size()) {
+        string t = trim(toks[pos]);
+        if (t.empty()) {
+            ++pos;
             continue;
         }
 
-        string cmd, rest;
-        {
-            stringstream ss(line);
-            ss >> cmd;
-            getline(ss, rest);
-            rest = trim(rest);
+        if (t == "{") {
+            ++pos;
+            continue;
         }
 
-        if (cmd == "push") {
-            if (rest.empty()) throw runtime_error("push needs an expression");
-            emit_expr(rest, b.code);
-        } else if (cmd == "print") {
-            if (!rest.empty()) emit_expr(rest, b.code);
-            b.code.push_back({Op::PRINT, 0, ""});
-        } else if (cmd == "pop") {
-            b.code.push_back({Op::POP, 0, ""});
-        } else if (cmd == "dup") {
-            b.code.push_back({Op::DUP, 0, ""});
-        } else if (cmd == "swap") {
-            b.code.push_back({Op::SWAP, 0, ""});
-        } else if (cmd == "add") {
-            b.code.push_back({Op::ADD, 0, ""});
-        } else if (cmd == "sub") {
-            b.code.push_back({Op::SUB, 0, ""});
-        } else if (cmd == "mul") {
-            b.code.push_back({Op::MUL, 0, ""});
-        } else if (cmd == "div") {
-            b.code.push_back({Op::DIV, 0, ""});
-        } else if (cmd == "gt") {
-            b.code.push_back({Op::GT, 0, ""});
-        } else if (cmd == "lt") {
-            b.code.push_back({Op::LT, 0, ""});
-        } else if (cmd == "eq") {
-            b.code.push_back({Op::EQ, 0, ""});
-        } else if (cmd == "input") {
-            b.code.push_back({Op::INPUT, 0, ""});
-        } else if (cmd == "jmp" || cmd == "jz" || cmd == "jnz" || cmd == "call") {
-            if (rest.empty()) throw runtime_error(cmd + " needs a label");
-            string lab = normalize_label(rest);
-            Op op = Op::JMP;
-            if (cmd == "jz") op = Op::JZ;
-            else if (cmd == "jnz") op = Op::JNZ;
-            else if (cmd == "call") op = Op::CALL;
-            b.code.push_back({op, 0, lab});
-        } else if (cmd == "ret") {
-            b.code.push_back({Op::RET, 0, ""});
-        } else if (cmd == "halt") {
-            b.code.push_back({Op::HALT, 0, ""});
-        } else {
-            throw runtime_error("Unknown command: " + cmd);
+        if (t == "}") {
+            return;
         }
+
+        if (starts_with(t, "if")) {
+            compile_if_stmt(toks, pos, b);
+            continue;
+        }
+
+        if (starts_with(t, "while")) {
+            compile_while_stmt(toks, pos, b);
+            continue;
+        }
+
+        if (starts_with(t, "for")) {
+            compile_for_stmt(toks, pos, b);
+            continue;
+        }
+
+        compile_simple_stmt(t, b);
+        ++pos;
+    }
+}
+
+static void compile_block_body(const vector<string>& toks, size_t& pos, CompiledBlock& b) {
+    if (pos >= toks.size() || trim(toks[pos]) != "{") {
+        throw runtime_error("Missing '{'");
+    }
+    ++pos;
+    compile_block_tokens(toks, pos, b);
+    if (pos >= toks.size() || trim(toks[pos]) != "}") {
+        throw runtime_error("Missing '}'");
+    }
+    ++pos;
+}
+
+static CompiledBlock compile_block(const vector<string>& toks, bool is_main) {
+    CompiledBlock b;
+    size_t pos = 0;
+    compile_block_tokens(toks, pos, b);
+
+    if (pos != toks.size()) {
+        string t = trim(toks[pos]);
+        if (t == "}") throw runtime_error("Unexpected '}'");
+        throw runtime_error("Unexpected tokens at end of block");
     }
 
     if (is_main) {
@@ -355,29 +635,27 @@ int main(int argc, char** argv) {
         vector<string> raw = read_lines(src_path);
 
         vector<FuncBlock> funcs;
-        vector<string> main_lines;
-        parse_source(raw, funcs, main_lines);
+        vector<string> main_toks;
+        parse_source(raw, funcs, main_toks);
 
         bool has_start = false;
-        for (auto& s : main_lines) {
+        for (auto& s : main_toks) {
             if (s == "__start__:") {
                 has_start = true;
                 break;
             }
         }
-        if (!has_start) {
-            throw runtime_error("Missing __start__:");
-        }
+        if (!has_start) throw runtime_error("Missing __start__:");
 
         vector<CompiledBlock> compiled_funcs;
         for (auto& fn : funcs) {
-            CompiledBlock b = compile_block(fn.lines, false);
+            CompiledBlock b = compile_block(fn.toks, false);
             if (b.labels.count(fn.name)) throw runtime_error("Duplicate label: " + fn.name);
             b.labels[fn.name] = 0;
             compiled_funcs.push_back(move(b));
         }
 
-        CompiledBlock main_block = compile_block(main_lines, true);
+        CompiledBlock main_block = compile_block(main_toks, true);
 
         vector<RawIns> program;
         unordered_map<string, int> globals;
@@ -397,8 +675,7 @@ int main(int argc, char** argv) {
 
         for (auto& b : compiled_funcs) append_block(b);
         append_block(main_block);
-
-        if (!globals.count("__start__")) {
+if (!globals.count("__start__")) {
             throw runtime_error("Entry label __start__ not found");
         }
 
@@ -440,3 +717,4 @@ int main(int argc, char** argv) {
         return 1;
     }
 }
+     

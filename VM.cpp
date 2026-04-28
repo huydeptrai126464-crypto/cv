@@ -1,18 +1,16 @@
 #include <iostream>
 #include <vector>
 #include <string>
-#include <sstream>
 #include <fstream>
-#include <unordered_map>
-#include <stack>
 #include <stdexcept>
+#include <cctype>
 using namespace std;
 
 enum class Op {
     PUSH, ADD, SUB, MUL, DIV,
     PRINT, POP, DUP, SWAP,
     JMP, JZ, JNZ, CALL, RET,
-    GT, LT, EQ,INPUT,
+    GT, LT, EQ, INPUT,
     HALT
 };
 
@@ -29,11 +27,11 @@ static string trim(string s) {
 }
 
 static Op parse_op(const string& s) {
-    if (s == "PUSH") return Op::PUSH;
-    if (s == "ADD")  return Op::ADD;
-    if (s == "SUB")  return Op::SUB;
-    if (s == "MUL")  return Op::MUL;
-    if (s == "DIV")  return Op::DIV;
+    if (s == "PUSH")  return Op::PUSH;
+    if (s == "ADD")   return Op::ADD;
+    if (s == "SUB")   return Op::SUB;
+    if (s == "MUL")   return Op::MUL;
+    if (s == "DIV")   return Op::DIV;
     if (s == "PRINT") return Op::PRINT;
     if (s == "POP")   return Op::POP;
     if (s == "DUP")   return Op::DUP;
@@ -124,13 +122,17 @@ struct VM {
                     stack.pop_back();
                     ++ip;
                     break;
-                 case Op::INPUT: {
-    long long x;
-    cin >> x;
-    stack.push_back(x);
-    ++ip;
-    break;
-}
+
+                case Op::INPUT: {
+                    long long x;
+                    if (!(cin >> x)) {
+                        cerr << "[vm] failed to read input\n";
+                        return;
+                    }
+                    stack.push_back(x);
+                    ++ip;
+                    break;
+                }
 
                 case Op::POP:
                     if (!need(1, "pop on empty stack")) return;
@@ -180,14 +182,16 @@ struct VM {
 
                 case Op::JZ: {
                     if (!need(1, "JZ on empty stack")) return;
-                    long long v = stack.back(); stack.pop_back();
+                    long long v = stack.back();
+                    stack.pop_back();
                     ip = (v == 0) ? (int)ins.arg : ip + 1;
                     break;
                 }
 
                 case Op::JNZ: {
                     if (!need(1, "JNZ on empty stack")) return;
-                    long long v = stack.back(); stack.pop_back();
+                    long long v = stack.back();
+                    stack.pop_back();
                     ip = (v != 0) ? (int)ins.arg : ip + 1;
                     break;
                 }
@@ -229,10 +233,12 @@ int main(int argc, char** argv) {
         while (in >> opstr) {
             Ins ins;
             ins.op = parse_op(opstr);
+
             if (ins.op == Op::PUSH || ins.op == Op::JMP || ins.op == Op::JZ ||
-                ins.op == Op::JNZ || ins.op == Op::CALL) {
+                ins.op == Op::JNZ  || ins.op == Op::CALL) {
                 if (!(in >> ins.arg)) throw runtime_error("Missing operand for " + opstr);
             }
+
             program.push_back(ins);
         }
 
