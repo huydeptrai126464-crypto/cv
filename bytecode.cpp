@@ -17,6 +17,7 @@ enum class Op {
     JMP, JZ, JNZ, CALL, RET,
     GT, LT, EQ, INPUT, PRINT_STR,
     LOAD, STORE, LOADI, STOREI,
+    AND, OR, XOR, NOT, SHL, SHR,
     HALT
 };
 
@@ -158,6 +159,12 @@ static string op_name(Op op) {
         case Op::LT:    return "LT";
         case Op::EQ:    return "EQ";
         case Op::INPUT: return "INPUT";
+        case Op::AND: return "AND";
+        case Op::OR:  return "OR";
+        case Op::XOR: return "XOR";
+        case Op::NOT: return "NOT";
+        case Op::SHL: return "SHL";
+       case Op::SHR: return "SHR";
         case Op::HALT:  return "HALT";
     }
     return "HALT";
@@ -539,6 +546,24 @@ static void compile_simple_stmt(const string& line, CompiledBlock& b) {
         if (!rest.empty()) throw runtime_error("storei takes no operand");
         b.code.push_back({Op::STOREI, 0, ""});
     }
+    else if (cmd == "and") {
+    b.code.push_back({Op::AND, 0, ""});
+}
+else if (cmd == "or") {
+    b.code.push_back({Op::OR, 0, ""});
+}
+else if (cmd == "xor") {
+    b.code.push_back({Op::XOR, 0, ""});
+}
+else if (cmd == "not") {
+    b.code.push_back({Op::NOT, 0, ""});
+}
+else if (cmd == "shl") {
+    b.code.push_back({Op::SHL, 0, ""});
+}
+else if (cmd == "shr") {
+    b.code.push_back({Op::SHR, 0, ""});
+}
     else if (cmd == "pop") {
         b.code.push_back({Op::POP, 0, ""});
     }

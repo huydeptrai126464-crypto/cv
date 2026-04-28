@@ -20,8 +20,13 @@
     "Update": "fix PRINT_STR + improve string handling + fix reverse string bug"
   },
   {
-    "Name":"Cv",
-    "Version":"2.2"
-    "Update":"added Load/store and update web"
+    "Name": "Cv",
+    "Version": "2.2",
+    "Update": "added LOAD/STORE/LOADI/STOREI + update web"
+  },
+  {
+    "Name": "Cv",
+    "Version": "2.5",
+    "Update": "added bitwise ops (AND, OR, XOR, NOT, SHL, SHR) + uint64 support"
   }
 ]

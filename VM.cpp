@@ -15,6 +15,7 @@ enum class Op {
     JMP, JZ, JNZ, CALL, RET,
     GT, LT, EQ, INPUT, PRINT_STR,
     LOAD, STORE, LOADI, STOREI,
+    AND, OR, XOR, NOT, SHL, SHR,
     HALT
 };
 
@@ -54,6 +55,12 @@ static Op parse_op(const string& s) {
     if (s == "STORE")     return Op::STORE;
     if (s == "LOADI")     return Op::LOADI;
     if (s == "STOREI")    return Op::STOREI;
+    if (s == "AND") return Op::AND;
+    if (s == "OR")  return Op::OR;
+    if (s == "XOR") return Op::XOR;
+    if (s == "NOT") return Op::NOT;
+    if (s == "SHL") return Op::SHL;
+    if (s == "SHR") return Op::SHR;
     if (s == "HALT")      return Op::HALT;
     throw runtime_error("Unknown opcode: " + s);
 }
@@ -99,6 +106,15 @@ struct VM {
 
     void run(const vector<Ins>& p, int entry) {
         int ip = entry;
+        auto popu64 = [&]() -> unsigned long long {
+    unsigned long long x = (unsigned long long)stack.back();
+    stack.pop_back();
+    return x;
+};
+
+auto pushu64 = [&](unsigned long long x) {
+    stack.push_back((long long)x);
+};
 
         while (ip >= 0 && ip < (int)p.size()) {
             const Ins& ins = p[ip];
@@ -172,6 +188,67 @@ struct VM {
                     ++ip;
                     break;
                 }
+                
+                case Op::AND: {
+    if (!need(2, "AND needs 2 values")) return;
+    unsigned long long b = popu64();
+    unsigned long long a = popu64();
+    pushu64(a & b);
+    ++ip;
+    break;
+}
+
+case Op::OR: {
+    if (!need(2, "OR needs 2 values")) return;
+    unsigned long long b = popu64();
+    unsigned long long a = popu64();
+    pushu64(a | b);
+    ++ip;
+    break;
+}
+
+case Op::XOR: {
+    if (!need(2, "XOR needs 2 values")) return;
+    unsigned long long b = popu64();
+    unsigned long long a = popu64();
+    pushu64(a ^ b);
+    ++ip;
+    break;
+}
+
+case Op::NOT: {
+    if (!need(1, "NOT needs 1 value")) return;
+    unsigned long long a = popu64();
+    pushu64(~a);
+    ++ip;
+    break;
+}
+
+case Op::SHL: {
+    if (!need(2, "SHL needs 2 values")) return;
+    unsigned long long shift = popu64();
+    unsigned long long a = popu64();
+    if (shift >= 64) {
+        pushu64(0);
+    } else {
+        pushu64(a << shift);
+    }
+    ++ip;
+    break;
+}
+
+case Op::SHR: {
+    if (!need(2, "SHR needs 2 values")) return;
+    unsigned long long shift = popu64();
+    unsigned long long a = popu64();
+    if (shift >= 64) {
+        pushu64(0);
+    } else {
+        pushu64(a >> shift);
+    }
+    ++ip;
+    break;
+}
 
                 case Op::POP:
                     if (!need(1, "pop on empty stack")) return;
