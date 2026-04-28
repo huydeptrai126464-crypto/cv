@@ -13,5 +13,10 @@
     "Name": "Cv",
     "Version": "2.0",
     "Update": "add if/else, while, for"
+  },
+  {
+    "Name": "Cv",
+    "Version": "2.1",
+    "Update": "fix PRINT_STR + improve string handling + fix reverse string bug"
   }
 ]

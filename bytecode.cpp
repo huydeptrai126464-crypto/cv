@@ -14,7 +14,7 @@ enum class Op {
     PUSH, ADD, SUB, MUL, DIV,
     PRINT, POP, DUP, SWAP,
     JMP, JZ, JNZ, CALL, RET,
-    GT, LT, EQ, INPUT,
+    GT, LT, EQ, INPUT,PRINT_STR,
     HALT
 };
 
@@ -59,6 +59,7 @@ static string op_name(Op op) {
         case Op::MUL:   return "MUL";
         case Op::DIV:   return "DIV";
         case Op::PRINT: return "PRINT";
+        case Op::PRINT_STR: return "PRINT_STR";
         case Op::POP:   return "POP";
         case Op::DUP:   return "DUP";
         case Op::SWAP:  return "SWAP";
@@ -423,48 +424,81 @@ static void compile_simple_stmt(const string& line, CompiledBlock& b) {
     if (cmd == "push") {
         if (rest.empty()) throw runtime_error("push needs an expression");
         emit_expr(rest, b.code);
-    } else if (cmd == "print") {
+    }
+    else if (cmd == "push_str") {
+    string s = rest;
+
+    if (s.size() >= 2 && s.front() == '"' && s.back() == '"') {
+        s = s.substr(1, s.size() - 2);
+    }
+
+    b.code.push_back({Op::PUSH, 0, ""}); 
+
+for (char c : s) {
+    b.code.push_back({Op::PUSH, (long long)(unsigned char)c, ""});
+}
+}
+    else if (cmd == "print") {
         if (!rest.empty()) emit_expr(rest, b.code);
         b.code.push_back({Op::PRINT, 0, ""});
-    } else if (cmd == "pop") {
+    }
+    else if (cmd == "print_str") {
+        b.code.push_back({Op::PRINT_STR, 0, ""});
+    }
+    else if (cmd == "pop") {
         b.code.push_back({Op::POP, 0, ""});
-    } else if (cmd == "dup") {
+    }
+    else if (cmd == "dup") {
         b.code.push_back({Op::DUP, 0, ""});
-    } else if (cmd == "swap") {
+    }
+    else if (cmd == "swap") {
         b.code.push_back({Op::SWAP, 0, ""});
-    } else if (cmd == "add") {
+    }
+    else if (cmd == "add") {
         b.code.push_back({Op::ADD, 0, ""});
-    } else if (cmd == "sub") {
+    }
+    else if (cmd == "sub") {
         b.code.push_back({Op::SUB, 0, ""});
-    } else if (cmd == "mul") {
+    }
+    else if (cmd == "mul") {
         b.code.push_back({Op::MUL, 0, ""});
-    } else if (cmd == "div") {
+    }
+    else if (cmd == "div") {
         b.code.push_back({Op::DIV, 0, ""});
-    } else if (cmd == "gt") {
+    }
+    else if (cmd == "gt") {
         b.code.push_back({Op::GT, 0, ""});
-    } else if (cmd == "lt") {
+    }
+    else if (cmd == "lt") {
         b.code.push_back({Op::LT, 0, ""});
-    } else if (cmd == "eq") {
+    }
+    else if (cmd == "eq") {
         b.code.push_back({Op::EQ, 0, ""});
-    } else if (cmd == "input") {
+    }
+    else if (cmd == "input") {
         b.code.push_back({Op::INPUT, 0, ""});
-    } else if (cmd == "jmp" || cmd == "jz" || cmd == "jnz" || cmd == "call") {
+    }
+    else if (cmd == "jmp" || cmd == "jz" || cmd == "jnz" || cmd == "call") {
         if (rest.empty()) throw runtime_error(cmd + " needs a label");
         string lab = normalize_label(rest);
+
         Op op = Op::JMP;
         if (cmd == "jz") op = Op::JZ;
         else if (cmd == "jnz") op = Op::JNZ;
         else if (cmd == "call") op = Op::CALL;
+
         b.code.push_back({op, 0, lab});
-    } else if (cmd == "ret") {
+    }
+    else if (cmd == "ret") {
         b.code.push_back({Op::RET, 0, ""});
-    } else if (cmd == "halt") {
+    }
+    else if (cmd == "halt") {
         b.code.push_back({Op::HALT, 0, ""});
-    } else {
+    }
+    else {
         throw runtime_error("Unknown command: " + cmd);
     }
 }
-
 static void compile_block_body(const vector<string>& toks, size_t& pos, CompiledBlock& b);
 
 static void compile_if_chain(const vector<string>& toks, size_t& pos, CompiledBlock& b, const string& end_label) {

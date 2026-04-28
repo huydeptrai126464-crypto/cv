@@ -10,7 +10,7 @@ enum class Op {
     PUSH, ADD, SUB, MUL, DIV,
     PRINT, POP, DUP, SWAP,
     JMP, JZ, JNZ, CALL, RET,
-    GT, LT, EQ, INPUT,
+    GT, LT, EQ, INPUT,PRINT_STR,
     HALT
 };
 
@@ -33,6 +33,7 @@ static Op parse_op(const string& s) {
     if (s == "MUL")   return Op::MUL;
     if (s == "DIV")   return Op::DIV;
     if (s == "PRINT") return Op::PRINT;
+    if (s == "PRINT_STR") return Op::PRINT_STR;
     if (s == "POP")   return Op::POP;
     if (s == "DUP")   return Op::DUP;
     if (s == "SWAP")  return Op::SWAP;
@@ -122,6 +123,25 @@ struct VM {
                     stack.pop_back();
                     ++ip;
                     break;
+                 case Op::PRINT_STR: {
+    vector<char> buf;
+
+    while (true) {
+        if (!need(1, "print_str underflow")) return;
+        long long c = stack.back();
+        stack.pop_back();
+
+        if (c == 0) break;
+        buf.push_back((char)c);
+    }
+
+    reverse(buf.begin(), buf.end());
+
+    for (char c : buf) cout << c;
+    cout << "\n";
+    ++ip;
+    break;
+}
 
                 case Op::INPUT: {
                     long long x;
