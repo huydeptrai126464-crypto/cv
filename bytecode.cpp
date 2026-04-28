@@ -15,6 +15,7 @@ enum class Op {
     PRINT, POP, DUP, SWAP,
     JMP, JZ, JNZ, CALL, RET,
     GT, LT, EQ, INPUT,PRINT_STR,
+    LOAD, STORE,
     HALT
 };
 
@@ -60,6 +61,8 @@ static string op_name(Op op) {
         case Op::DIV:   return "DIV";
         case Op::PRINT: return "PRINT";
         case Op::PRINT_STR: return "PRINT_STR";
+        case Op::LOAD:  return "LOAD";
+        case Op::STORE: return "STORE";
         case Op::POP:   return "POP";
         case Op::DUP:   return "DUP";
         case Op::SWAP:  return "SWAP";
@@ -445,6 +448,17 @@ for (char c : s) {
     else if (cmd == "print_str") {
         b.code.push_back({Op::PRINT_STR, 0, ""});
     }
+    
+    else if (cmd == "load") {
+    if (rest.empty()) throw runtime_error("load needs an index");
+    long long idx = stoll(rest);
+    b.code.push_back({Op::LOAD, idx, ""});
+}
+else if (cmd == "store") {
+    if (rest.empty()) throw runtime_error("store needs an index");
+    long long idx = stoll(rest);
+    b.code.push_back({Op::STORE, idx, ""});
+}
     else if (cmd == "pop") {
         b.code.push_back({Op::POP, 0, ""});
     }
@@ -734,6 +748,8 @@ if (!globals.count("__start__")) {
                 case Op::JZ:
                 case Op::JNZ:
                 case Op::CALL:
+                case Op::LOAD:
+                case Op::STORE:
                     out << ' ' << ins.arg;
                     break;
                 default:

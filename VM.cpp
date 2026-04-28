@@ -4,13 +4,15 @@
 #include <fstream>
 #include <stdexcept>
 #include <cctype>
+#include <algorithm>
 using namespace std;
 
 enum class Op {
     PUSH, ADD, SUB, MUL, DIV,
     PRINT, POP, DUP, SWAP,
     JMP, JZ, JNZ, CALL, RET,
-    GT, LT, EQ, INPUT,PRINT_STR,
+    GT, LT, EQ, INPUT, PRINT_STR,
+    LOAD, STORE,
     HALT
 };
 
@@ -27,32 +29,37 @@ static string trim(string s) {
 }
 
 static Op parse_op(const string& s) {
-    if (s == "PUSH")  return Op::PUSH;
-    if (s == "ADD")   return Op::ADD;
-    if (s == "SUB")   return Op::SUB;
-    if (s == "MUL")   return Op::MUL;
-    if (s == "DIV")   return Op::DIV;
-    if (s == "PRINT") return Op::PRINT;
+    if (s == "PUSH")      return Op::PUSH;
+    if (s == "ADD")       return Op::ADD;
+    if (s == "SUB")       return Op::SUB;
+    if (s == "MUL")       return Op::MUL;
+    if (s == "DIV")       return Op::DIV;
+    if (s == "PRINT")     return Op::PRINT;
     if (s == "PRINT_STR") return Op::PRINT_STR;
-    if (s == "POP")   return Op::POP;
-    if (s == "DUP")   return Op::DUP;
-    if (s == "SWAP")  return Op::SWAP;
-    if (s == "JMP")   return Op::JMP;
-    if (s == "JZ")    return Op::JZ;
-    if (s == "JNZ")   return Op::JNZ;
-    if (s == "CALL")  return Op::CALL;
-    if (s == "RET")   return Op::RET;
-    if (s == "GT")    return Op::GT;
-    if (s == "LT")    return Op::LT;
-    if (s == "EQ")    return Op::EQ;
-    if (s == "INPUT") return Op::INPUT;
-    if (s == "HALT")  return Op::HALT;
+    if (s == "POP")       return Op::POP;
+    if (s == "DUP")       return Op::DUP;
+    if (s == "SWAP")      return Op::SWAP;
+    if (s == "JMP")       return Op::JMP;
+    if (s == "JZ")        return Op::JZ;
+    if (s == "JNZ")       return Op::JNZ;
+    if (s == "CALL")      return Op::CALL;
+    if (s == "RET")       return Op::RET;
+    if (s == "GT")        return Op::GT;
+    if (s == "LT")        return Op::LT;
+    if (s == "EQ")        return Op::EQ;
+    if (s == "INPUT")     return Op::INPUT;
+    if (s == "LOAD")      return Op::LOAD;
+    if (s == "STORE")     return Op::STORE;
+    if (s == "HALT")      return Op::HALT;
     throw runtime_error("Unknown opcode: " + s);
 }
 
 struct VM {
     vector<long long> stack;
     vector<int> callstack;
+    vector<long long> memory;
+
+    VM() : memory(1024, 0) {}
 
     bool need(size_t n, const string& msg) {
         if (stack.size() < n) {
@@ -66,6 +73,14 @@ struct VM {
         if (!need(2, "stack underflow")) return false;
         a = stack.back(); stack.pop_back();
         b = stack.back(); stack.pop_back();
+        return true;
+    }
+
+    bool check_mem(long long idx, const string& op) {
+        if (idx < 0 || idx >= (long long)memory.size()) {
+            cerr << "[vm] " << op << " out of bounds: " << idx << "\n";
+            return false;
+        }
         return true;
     }
 
@@ -123,25 +138,22 @@ struct VM {
                     stack.pop_back();
                     ++ip;
                     break;
-                 case Op::PRINT_STR: {
-    vector<char> buf;
 
-    while (true) {
-        if (!need(1, "print_str underflow")) return;
-        long long c = stack.back();
-        stack.pop_back();
-
-        if (c == 0) break;
-        buf.push_back((char)c);
-    }
-
-    reverse(buf.begin(), buf.end());
-
-    for (char c : buf) cout << c;
-    cout << "\n";
-    ++ip;
-    break;
-}
+                case Op::PRINT_STR: {
+                    vector<char> buf;
+                    while (true) {
+                        if (!need(1, "print_str underflow")) return;
+                        long long c = stack.back();
+                        stack.pop_back();
+                        if (c == 0) break;
+                        buf.push_back((char)c);
+                    }
+                    reverse(buf.begin(), buf.end());
+                    for (char c : buf) cout << c;
+                    cout << "\n";
+                    ++ip;
+                    break;
+                }
 
                 case Op::INPUT: {
                     long long x;
@@ -227,6 +239,22 @@ struct VM {
                     callstack.pop_back();
                     break;
 
+                case Op::LOAD: {
+                    if (!check_mem(ins.arg, "LOAD")) return;
+                    stack.push_back(memory[(size_t)ins.arg]);
+                    ++ip;
+                    break;
+                }
+
+                case Op::STORE: {
+                    if (!need(1, "STORE on empty stack")) return;
+                    if (!check_mem(ins.arg, "STORE")) return;
+                    memory[(size_t)ins.arg] = stack.back();
+                    stack.pop_back();
+                    ++ip;
+                    break;
+                }
+
                 case Op::HALT:
                     return;
             }
@@ -255,7 +283,8 @@ int main(int argc, char** argv) {
             ins.op = parse_op(opstr);
 
             if (ins.op == Op::PUSH || ins.op == Op::JMP || ins.op == Op::JZ ||
-                ins.op == Op::JNZ  || ins.op == Op::CALL) {
+                ins.op == Op::JNZ  || ins.op == Op::CALL || ins.op == Op::LOAD ||
+                ins.op == Op::STORE) {
                 if (!(in >> ins.arg)) throw runtime_error("Missing operand for " + opstr);
             }
 
