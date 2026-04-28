@@ -434,5 +434,4 @@ Cv is a small compiler and VM system.
 - you can use `./bytecode file.cv`, then `./vm program.bc`
 - or use `./cv file.cv` for the full automatic flow
 
-Cv is simple, experimental, and built for learning and exploring bytecode.
-
+This README.md file is quite outdated. I can’t list all of its features here because it would take thousands of lines. Instead, whenever you see the JSON version being updated, please check there to see what has been added or changed. Thank you.
