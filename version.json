@@ -28,5 +28,10 @@
     "Name": "Cv",
     "Version": "2.5",
     "Update": "added bitwise ops (AND, OR, XOR, NOT, SHL, SHR) + uint64 support"
+  },
+  {
+    "Name": "Cv",
+    "Version": "3.0",
+    "Update": "added 16 registers (r0–r15), register arithmetic support, assignments like r1 = 2, r2 = r1 + 3, GETR/SETR integration"
   }
 ]

@@ -18,6 +18,7 @@ enum class Op {
     GT, LT, EQ, INPUT, PRINT_STR,
     LOAD, STORE, LOADI, STOREI,
     AND, OR, XOR, NOT, SHL, SHR,
+    GETR, SETR,
     HALT
 };
 
@@ -31,6 +32,20 @@ struct CompiledBlock {
     vector<RawIns> code;
     unordered_map<string, int> labels;
 };
+
+static bool is_register_name(const string& s) {
+    if (s.size() < 2) return false;
+    if (s[0] != 'r') return false;
+    for (size_t i = 1; i < s.size(); ++i) {
+        if (!isdigit((unsigned char)s[i])) return false;
+    }
+    int id = stoi(s.substr(1));
+    return id >= 0 && id < 16;
+}
+
+static int register_id(const string& s) {
+    return stoi(s.substr(1));
+}
 
 static vector<string> g_string_pool;
 static unordered_map<string, int> g_string_ids;
@@ -120,6 +135,9 @@ static int intern_string(const string& s) {
 static long long resolve_mem_operand(const string& text) {
     string t = trim(text);
     if (t.empty()) throw runtime_error("Missing memory operand");
+    if (is_register_name(t)) {
+        throw runtime_error("Register name cannot be used as memory operand: " + t);
+    }
     if (is_integer(t)) return stoll(t);
 
     if (!is_identifier(t)) {
@@ -159,20 +177,23 @@ static string op_name(Op op) {
         case Op::LT:    return "LT";
         case Op::EQ:    return "EQ";
         case Op::INPUT: return "INPUT";
-        case Op::AND: return "AND";
-        case Op::OR:  return "OR";
-        case Op::XOR: return "XOR";
-        case Op::NOT: return "NOT";
-        case Op::SHL: return "SHL";
-       case Op::SHR: return "SHR";
+        case Op::GETR:  return "GETR";
+        case Op::SETR:  return "SETR";
+        case Op::AND:   return "AND";
+        case Op::OR:    return "OR";
+        case Op::XOR:   return "XOR";
+        case Op::NOT:   return "NOT";
+        case Op::SHL:   return "SHL";
+        case Op::SHR:   return "SHR";
         case Op::HALT:  return "HALT";
     }
     return "HALT";
 }
 
 struct Token {
-    enum Type { NUM, PLUS, MINUS, STAR, HASH, LP, RP, END } type;
+    enum Type { NUM, IDENT, PLUS, MINUS, STAR, HASH, LP, RP, END } type;
     long long value = 0;
+    string text;
 };
 
 struct ExprCompiler {
@@ -198,19 +219,28 @@ struct ExprCompiler {
                     v = v * 10 + (s[i] - '0');
                     ++i;
                 }
-                toks.push_back({Token::NUM, v});
+                toks.push_back({Token::NUM, v, ""});
                 continue;
             }
-            if (c == '+') toks.push_back({Token::PLUS, 0});
-            else if (c == '-') toks.push_back({Token::MINUS, 0});
-            else if (c == '*') toks.push_back({Token::STAR, 0});
-            else if (c == '#') toks.push_back({Token::HASH, 0});
-            else if (c == '(') toks.push_back({Token::LP, 0});
-            else if (c == ')') toks.push_back({Token::RP, 0});
+            if (isalpha((unsigned char)c) || c == '_') {
+                string id;
+                while (i < s.size() && (isalnum((unsigned char)s[i]) || s[i] == '_')) {
+                    id.push_back(s[i]);
+                    ++i;
+                }
+                toks.push_back({Token::IDENT, 0, id});
+                continue;
+            }
+            if (c == '+') toks.push_back({Token::PLUS, 0, ""});
+            else if (c == '-') toks.push_back({Token::MINUS, 0, ""});
+            else if (c == '*') toks.push_back({Token::STAR, 0, ""});
+            else if (c == '#') toks.push_back({Token::HASH, 0, ""});
+            else if (c == '(') toks.push_back({Token::LP, 0, ""});
+            else if (c == ')') toks.push_back({Token::RP, 0, ""});
             else throw runtime_error(string("Unknown char in expression: '") + c + "'");
             ++i;
         }
-        toks.push_back({Token::END, 0});
+        toks.push_back({Token::END, 0, ""});
     }
 
     const Token& peek() const { return toks[pos]; }
@@ -243,6 +273,15 @@ struct ExprCompiler {
 
         if (peek().type == Token::NUM) {
             out.push_back({Op::PUSH, peek().value, ""});
+            ++pos;
+            return;
+        }
+
+        if (peek().type == Token::IDENT) {
+            if (!is_register_name(peek().text)) {
+                throw runtime_error("Unknown identifier in expression: " + peek().text + " (only r0..r15 are allowed here)");
+            }
+            out.push_back({Op::GETR, register_id(peek().text), ""});
             ++pos;
             return;
         }
@@ -453,6 +492,7 @@ static void mark_label(CompiledBlock& b, const string& lab) {
     if (b.labels.count(lab)) throw runtime_error("Duplicate label in block: " + lab);
     b.labels[lab] = (int)b.code.size();
 }
+
 static void emit_condition_false_jump(const string& cond, vector<RawIns>& out, const string& false_label) {
     string s = trim(cond);
     if (s.empty()) return;
@@ -492,6 +532,21 @@ static void emit_condition_false_jump(const string& cond, vector<RawIns>& out, c
     out.push_back({Op::JZ, 0, false_label});
 }
 
+static bool is_single_assignment(const string& line, string& lhs, string& rhs) {
+    size_t eq = line.find('=');
+    if (eq == string::npos) return false;
+
+    if (eq + 1 < line.size() && line[eq + 1] == '=') return false;
+    if (eq > 0) {
+        char prev = line[eq - 1];
+        if (prev == '<' || prev == '>' || prev == '!' || prev == '=') return false;
+    }
+
+    lhs = trim(line.substr(0, eq));
+    rhs = trim(line.substr(eq + 1));
+    return !lhs.empty() && !rhs.empty();
+}
+
 static void compile_simple_stmt(const string& line, CompiledBlock& b) {
     string t = trim(line);
     if (t.empty()) return;
@@ -500,6 +555,16 @@ static void compile_simple_stmt(const string& line, CompiledBlock& b) {
         string lab = trim(t.substr(0, t.size() - 1));
         if (lab.empty()) throw runtime_error("Empty label");
         mark_label(b, lab);
+        return;
+    }
+
+    string lhs, rhs;
+    if (is_single_assignment(t, lhs, rhs)) {
+        if (!is_register_name(lhs)) {
+            throw runtime_error("Left side of assignment must be a register like r0..r15: " + lhs);
+        }
+        emit_expr(rhs, b.code);
+        b.code.push_back({Op::SETR, register_id(lhs), ""});
         return;
     }
 
@@ -546,24 +611,36 @@ static void compile_simple_stmt(const string& line, CompiledBlock& b) {
         if (!rest.empty()) throw runtime_error("storei takes no operand");
         b.code.push_back({Op::STOREI, 0, ""});
     }
+    else if (cmd == "getr") {
+        if (rest.empty()) throw runtime_error("getr needs a register index");
+        int r = stoi(rest);
+        if (r < 0 || r >= 16) throw runtime_error("getr register out of range: " + rest);
+        b.code.push_back({Op::GETR, r, ""});
+    }
+    else if (cmd == "setr") {
+        if (rest.empty()) throw runtime_error("setr needs a register index");
+        int r = stoi(rest);
+        if (r < 0 || r >= 16) throw runtime_error("setr register out of range: " + rest);
+        b.code.push_back({Op::SETR, r, ""});
+    }
     else if (cmd == "and") {
-    b.code.push_back({Op::AND, 0, ""});
-}
-else if (cmd == "or") {
-    b.code.push_back({Op::OR, 0, ""});
-}
-else if (cmd == "xor") {
-    b.code.push_back({Op::XOR, 0, ""});
-}
-else if (cmd == "not") {
-    b.code.push_back({Op::NOT, 0, ""});
-}
-else if (cmd == "shl") {
-    b.code.push_back({Op::SHL, 0, ""});
-}
-else if (cmd == "shr") {
-    b.code.push_back({Op::SHR, 0, ""});
-}
+        b.code.push_back({Op::AND, 0, ""});
+    }
+    else if (cmd == "or") {
+        b.code.push_back({Op::OR, 0, ""});
+    }
+    else if (cmd == "xor") {
+        b.code.push_back({Op::XOR, 0, ""});
+    }
+    else if (cmd == "not") {
+        b.code.push_back({Op::NOT, 0, ""});
+    }
+    else if (cmd == "shl") {
+        b.code.push_back({Op::SHL, 0, ""});
+    }
+    else if (cmd == "shr") {
+        b.code.push_back({Op::SHR, 0, ""});
+    }
     else if (cmd == "pop") {
         b.code.push_back({Op::POP, 0, ""});
     }
@@ -595,7 +672,7 @@ else if (cmd == "shr") {
         b.code.push_back({Op::EQ, 0, ""});
     }
     else if (cmd == "input") {
-        b.code.push_back({Op::INPUT, 0, ""});
+b.code.push_back({Op::INPUT, 0, ""});
     }
     else if (cmd == "jmp" || cmd == "jz" || cmd == "jnz" || cmd == "call") {
         if (rest.empty()) throw runtime_error(cmd + " needs a label");
@@ -618,7 +695,6 @@ else if (cmd == "shr") {
         throw runtime_error("Unknown command: " + cmd);
     }
 }
-
 static void compile_block_body(const vector<string>& toks, size_t& pos, CompiledBlock& b);
 
 static void compile_if_chain(const vector<string>& toks, size_t& pos, CompiledBlock& b, const string& end_label) {
@@ -867,6 +943,8 @@ int main(int argc, char** argv) {
                 case Op::CALL:
                 case Op::LOAD:
                 case Op::STORE:
+                case Op::GETR:
+                case Op::SETR:
                     out << ' ' << ins.arg;
                     break;
                 default:

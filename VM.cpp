@@ -16,6 +16,7 @@ enum class Op {
     GT, LT, EQ, INPUT, PRINT_STR,
     LOAD, STORE, LOADI, STOREI,
     AND, OR, XOR, NOT, SHL, SHR,
+    GETR, SETR,
     HALT
 };
 
@@ -51,6 +52,8 @@ static Op parse_op(const string& s) {
     if (s == "LT")        return Op::LT;
     if (s == "EQ")        return Op::EQ;
     if (s == "INPUT")     return Op::INPUT;
+    if (s == "GETR") return Op::GETR;
+    if (s == "SETR") return Op::SETR;
     if (s == "LOAD")      return Op::LOAD;
     if (s == "STORE")     return Op::STORE;
     if (s == "LOADI")     return Op::LOADI;
@@ -69,9 +72,10 @@ struct VM {
     vector<long long> stack;
     vector<int> callstack;
     vector<long long> memory;
+    vector<long long> reg;
     vector<string> strings;
 
-    VM() : memory(4096, 0) {}
+    VM() : memory(4096, 0), reg(16, 0) {}
 
     bool need(size_t n, const string& msg) {
         if (stack.size() < n) {
@@ -95,6 +99,13 @@ struct VM {
         }
         return true;
     }
+    bool check_reg(long long idx, const string& op) {
+    if (idx < 0 || idx >= (long long)reg.size()) {
+        cerr << "[vm] " << op << " out of bounds: " << idx << "\n";
+        return false;
+    }
+    return true;
+}
 
     bool check_str(long long idx) {
         if (idx < 0 || idx >= (long long)strings.size()) {
@@ -188,6 +199,21 @@ auto pushu64 = [&](unsigned long long x) {
                     ++ip;
                     break;
                 }
+                case Op::GETR: {
+    if (!check_reg(ins.arg, "GETR")) return;
+    stack.push_back(reg[(size_t)ins.arg]);
+    ++ip;
+    break;
+}
+
+case Op::SETR: {
+    if (!need(1, "SETR on empty stack")) return;
+    if (!check_reg(ins.arg, "SETR")) return;
+    reg[(size_t)ins.arg] = stack.back();
+    stack.pop_back();
+    ++ip;
+    break;
+}
                 
                 case Op::AND: {
     if (!need(2, "AND needs 2 values")) return;
