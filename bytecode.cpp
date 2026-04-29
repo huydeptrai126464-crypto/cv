@@ -836,6 +836,13 @@ static CompiledBlock compile_block(const vector<string>& toks, bool is_main) {
     size_t pos = 0;
     compile_block_tokens(toks, pos, b);
 
+    if (is_main) {
+        if (pos >= toks.size() || trim(toks[pos]) != "}") {
+            throw runtime_error("Missing '}'");
+        }
+        ++pos;
+    }
+
     if (pos != toks.size()) {
         string t = trim(toks[pos]);
         if (t == "}") throw runtime_error("Unexpected '}'");
