@@ -1,0 +1,12 @@
+@test_for {
+    for (r0 = 0; r0 < 5; r0 = r0 + 1) {
+        print r0
+    }
+    ret
+}
+
+__start__:
+{
+    call test_for
+    halt
+}

@@ -442,11 +442,11 @@ int main(int argc, char** argv) {
             Ins ins;
             ins.op = parse_op(opstr);
 
-            if (ins.op == Op::PUSH || ins.op == Op::JMP || ins.op == Op::JZ ||
-                ins.op == Op::JNZ  || ins.op == Op::CALL || ins.op == Op::LOAD ||
-                ins.op == Op::STORE) {
-                if (!(ss >> ins.arg)) throw runtime_error("Missing operand for " + opstr);
-            }
+          if (ins.op == Op::PUSH || ins.op == Op::JMP || ins.op == Op::JZ ||
+    ins.op == Op::JNZ  || ins.op == Op::CALL || ins.op == Op::LOAD ||
+    ins.op == Op::STORE || ins.op == Op::GETR || ins.op == Op::SETR) {
+    if (!(ss >> ins.arg)) throw runtime_error("Missing operand for " + opstr);
+}
 
             program.push_back(ins);
         }

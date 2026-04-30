@@ -1,0 +1,79 @@
+@init_board {
+    // white pawn on rank 2
+    push 65280
+    store white_pawns
+
+    // empty other pieces for this test
+    push 0
+    store black_pawns
+    push 0
+    store white_king
+    push 0
+    store black_king
+
+    push 0
+    store side_to_move
+    call update_occ
+    ret
+}
+
+@update_occ {
+    load white_pawns
+    load black_pawns
+    or
+    load white_king
+    or
+    load black_king
+    or
+    store occupancy
+    ret
+}
+
+@try_e2e4 {
+    load white_pawns
+    push 4096
+    and
+    jz no_move
+
+    load occupancy
+    push 268435456
+    and
+    jnz no_move
+
+    load white_pawns
+    push 4096
+    not
+    and
+    push 268435456
+    or
+    store white_pawns
+
+    call update_occ
+
+no_move:
+    ret
+}
+
+__start__:
+{
+    call init_board
+
+    push_str "before"
+    print_str
+    load white_pawns
+    print
+
+    call try_e2e4
+
+    push_str "after"
+    print_str
+    load white_pawns
+    print
+
+    push_str "occupancy"
+    print_str
+    load occupancy
+    print
+
+    halt
+}

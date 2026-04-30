@@ -1,0 +1,23 @@
+@test_register {
+    r0 = 7
+    r1 = r0 + 5
+
+    print r0
+    print r1
+
+    if (r1 > r0) {
+        push_str "register-ok"
+        print_str
+    } else {
+        push_str "register-bad"
+        print_str
+    }
+
+    ret
+}
+
+__start__:
+{
+    call test_register
+    halt
+}
